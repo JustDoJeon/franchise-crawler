@@ -2,71 +2,54 @@ package com.dodo.jiwhan.service;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.openqa.selenium.By;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
-import io.github.bonigarcia.wdm.WebDriverManager;
-import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.WebDriverWait;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class FranchiseCrawlerService {
 
+    private static final String BASE_URL =
+        "https://franchise.ftc.go.kr/mnu/00013/program/userRqst/list.do"
+        + "?column=brd&searchKeyword=&selUpjong=&selIndus=&pageUnit=300&pageIndex=";
+
     public byte[] crawlFranchiseData() throws IOException {
-
-        ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage"); // 컨테이너 환경 필수
-        options.addArguments("--disable-extensions");
-        options.addArguments("--remote-allow-origins=*");
-
-        WebDriverManager.chromedriver().setup();
-        WebDriver driver = new ChromeDriver(options);
-
-        String baseUrl = "https://franchise.ftc.go.kr/mnu/00013/program/userRqst/list.do"
-            + "?column=brd&searchKeyword=&selUpjong=&selIndus=&pageUnit=300&pageIndex=";
         List<String[]> data = new ArrayList<>();
         int pageIndex = 1;
 
-        try {
-            while (true) {
-                driver.get(baseUrl + pageIndex);
+        while (true) {
+            Document doc = Jsoup.connect(BASE_URL + pageIndex)
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .timeout(30_000)
+                .get();
 
-                WebDriverWait wait = new WebDriverWait(driver, Duration.ofMinutes(1L));
-                WebElement table = wait.until(
-                    ExpectedConditions.presenceOfElementLocated(By.cssSelector("table.table")));
-                List<WebElement> rows = table.findElements(By.tagName("tr"));
+            Element table = doc.selectFirst("table.table");
+            if (table == null) break;
 
-                if (rows.size() <= 1) break;
+            Elements rows = table.select("tr");
+            if (rows.size() <= 1) break;
 
-                for (int i = 1; i < rows.size(); i++) {
-                    List<WebElement> cols = rows.get(i).findElements(By.tagName("td"));
-                    String[] rowData = new String[cols.size()];
-                    for (int j = 0; j < cols.size(); j++) {
-                        String text = cols.get(j).getText();
-                        rowData[j] = (text != null) ? text.trim() : "";
-                    }
-                    data.add(rowData);
+            for (int i = 1; i < rows.size(); i++) {
+                Elements cols = rows.get(i).select("td");
+                if (cols.isEmpty()) continue;
+
+                String[] rowData = new String[cols.size()];
+                for (int j = 0; j < cols.size(); j++) {
+                    rowData[j] = cols.get(j).text().trim();
                 }
-                pageIndex++;
+                data.add(rowData);
             }
-
-            return buildExcel(data);
-
-        } finally {
-            driver.quit();
+            pageIndex++;
         }
+
+        return buildExcel(data);
     }
 
     private byte[] buildExcel(List<String[]> data) throws IOException {
